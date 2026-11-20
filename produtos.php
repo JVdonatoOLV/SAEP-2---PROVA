@@ -1,11 +1,11 @@
 <?php
-session_start();
-require_once __DIR__ . '/conexao.php';
+require_once __DIR__ . '/includes/auth.php';
+exigir_login();
 
 $sucesso = "";
 $erro = "";
 
-if (isset($_GET["excluir"])) {
+if (isset($_GET["excluir"]) && eh_admin()) {
     try {
         $st = $pdo->prepare("DELETE FROM produto WHERE id_produto = ?");
         $st->execute([$_GET["excluir"]]);
@@ -36,11 +36,13 @@ $produtos = $pdo->query("SELECT * FROM produto ORDER BY nome")->fetchAll();
         <div class="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
             <div>
                 <h1 class="text-xl font-extrabold text-gray-800">Gerenciar Produtos</h1>
-                <p class="text-sm text-gray-500">Cadastre, consulte e remova os produtos do estoque</p>
+                <p class="text-sm text-gray-500"><?= eh_admin() ? "Cadastre, consulte e remova os produtos do estoque" : "Consulte os produtos e movimente o estoque" ?></p>
             </div>
+            <?php if (eh_admin()): ?>
             <a href="produto_form.php" class="bg-senai-green text-white font-bold px-4 py-2.5 rounded-lg text-sm hover:bg-green-600 transition flex items-center gap-2">
                 + Novo Produto
             </a>
+            <?php endif; ?>
         </div>
 
         <div class="p-6 flex-1">
@@ -85,7 +87,9 @@ $produtos = $pdo->query("SELECT * FROM produto ORDER BY nome")->fetchAll();
                                 <div class="flex items-center justify-center gap-1.5">
                                     <a href="produto.php?id=<?= $p["id_produto"] ?>" class="bg-senai-blue text-white text-xs px-2.5 py-1.5 rounded-md hover:bg-senai-blue-dark transition" title="Ver produto">🔍 Ver</a>
                                     <a href="movimentacao_form.php?id_produto=<?= $p["id_produto"] ?>" class="bg-yellow-500 text-white text-xs px-2.5 py-1.5 rounded-md hover:bg-yellow-600 transition" title="Movimentar estoque">🔄 Movimentar</a>
+                                    <?php if (eh_admin()): ?>
                                     <a onclick="return confirm('Tem certeza disso?')" class="bg-senai-red text-white text-xs px-2.5 py-1.5 rounded-md hover:bg-red-700 transition" href="?excluir=<?= $p["id_produto"] ?>">Excluir</a>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                         </tr>

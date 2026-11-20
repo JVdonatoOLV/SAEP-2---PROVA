@@ -1,6 +1,6 @@
 <?php
-session_start();
-require_once __DIR__ . '/conexao.php';
+require_once __DIR__ . '/includes/auth.php';
+exigir_admin();
 
 $erro = "";
 
@@ -11,7 +11,7 @@ $data       = date("Y-m-d");
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    $nome       = trim($_POST["nome"] ?? "");       // ?? evita aviso se o campo não veio
+    $nome       = trim($_POST["nome"] ?? "");
     $quantidade = trim($_POST["quantidade"] ?? "");
     $valor      = trim($_POST["valor"] ?? "");
     $data       = trim($_POST["data"] ?? "");
@@ -29,8 +29,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
 
     if ($erro === "") {
-        $st = $pdo->prepare("INSERT INTO produto (nome, quantidade_estoque, valor_unitario, data_cadastro) VALUES (?, ?, ?, ?)");
-        $st->execute([$nome, (int) $quantidade, (float) $valor, $data]);
+        $pdo->beginTransaction();
+        try {
+            $st = $pdo->prepare("INSERT INTO produto (nome, quantidade_estoque, valor_unitario, data_cadastro) VALUES (?, ?, ?, ?)");
+            $st->execute([$nome, 0, (float) $valor, $data]);   // estoque nasce zerado; a ENTRADA abaixo o preenche (trigger)
+
+            // Estoque inicial também é movimentação: registrada como ENTRADA, e o trigger soma no estoque
+            if ((int) $quantidade > 0) {
+                $st = $pdo->prepare("INSERT INTO movimentacao (tipo, quantidade, id_produto, datetime_movimentacao, id_user) VALUES ('ENTRADA', ?, ?, NOW(), ?)");
+                $st->execute([(int) $quantidade, $pdo->lastInsertId(), usuario_logado()["id_user"]]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
 
         header("Location: produtos.php?salvo=1");     // redireciona após gravar
         exit;

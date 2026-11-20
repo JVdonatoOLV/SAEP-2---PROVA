@@ -1,28 +1,19 @@
 <?php
-session_start();
-require_once __DIR__ . '/conexao.php';
+require_once __DIR__ . '/includes/auth.php';
+exigir_login();
 
 $erro = "";
 
 $id_produto = (int) ($_GET["id_produto"] ?? 0);
 $tipo       = "ENTRADA";
 $quantidade = "";
-$id_user    = 0;
+$id_user    = usuario_logado()["id_user"];
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     $id_produto = (int) ($_POST["id_produto"] ?? 0);
     $tipo       = $_POST["tipo"] ?? "";
     $quantidade = (int) ($_POST["quantidade"] ?? 0);
-    $id_user    = (int) ($_POST["id_user"] ?? 0);
-
-    $st = $pdo->prepare("SELECT quantidade_estoque FROM produto WHERE id_produto = ?");
-    $st->execute([$id_produto]);
-    $produto = $st->fetch();
-
-    $st = $pdo->prepare("SELECT id_user FROM `user` WHERE id_user = ?");
-    $st->execute([$id_user]);
-    $user = $st->fetch();
 
     if (!$id_produto || !$quantidade || !$id_user || $tipo === "") {
         $erro = "Preencha todos os campos!";
@@ -30,30 +21,41 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $erro = "Tipo não aceito!";
     } elseif ($quantidade <= 0) {
         $erro = "Quantidade inválida!";
-    } elseif (!$produto) {
-        $erro = "Não foi possível encontrar o produto!";
-    } elseif (!$user) {
-        $erro = "Usuário não encontrado!";
-    } elseif ($tipo === "SAIDA" && $produto["quantidade_estoque"] < $quantidade) {
-        $erro = "Estoque insuficiente! Disponível: " . $produto["quantidade_estoque"] . ".";
-    }
+    } else {
+   
+        $pdo->beginTransaction();
+        try {
+            $st = $pdo->prepare("SELECT quantidade_estoque FROM produto WHERE id_produto = ? FOR UPDATE");
+            $st->execute([$id_produto]);
+            $produto = $st->fetch();
 
-    if ($erro === "") {
-        $st = $pdo->prepare("INSERT INTO movimentacao (tipo, quantidade, id_produto, datetime_movimentacao, id_user) VALUES (?, ?, ?, NOW(), ?)");
-        $st->execute([$tipo, $quantidade, $id_produto, $id_user]);
+            if (!$produto) {
+                $erro = "Não foi possível encontrar o produto!";
+            } elseif ($tipo === "SAIDA" && $produto["quantidade_estoque"] < $quantidade) {
+                $erro = "Estoque insuficiente! Disponível: " . $produto["quantidade_estoque"] . ".";
+            } else {
+                $st = $pdo->prepare("INSERT INTO movimentacao (tipo, quantidade, id_produto, datetime_movimentacao, id_user) VALUES (?, ?, ?, NOW(), ?)");
+                $st->execute([$tipo, $quantidade, $id_produto, $id_user]);
+                // O estoque é atualizado automaticamente pelo trigger movimentacao_atualiza_estoque
+            }
+            if ($erro === "") {
+                $pdo->commit();
+            } else {
+                $pdo->rollBack();
+            }
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
 
-        // ENTRADA soma no estoque, SAIDA subtrai
-        $delta = $tipo === "ENTRADA" ? $quantidade : -$quantidade;
-        $st = $pdo->prepare("UPDATE produto SET quantidade_estoque = quantidade_estoque + ? WHERE id_produto = ?");
-        $st->execute([$delta, $id_produto]);
-
-        header("Location: movimentacoes.php?salvo=" . strtolower($tipo));
-        exit;
+        if ($erro === "") {
+            header("Location: movimentacoes.php?salvo=" . strtolower($tipo));
+            exit;
+        }
     }
 }
 
 $produtos = $pdo->query("SELECT id_produto, nome, quantidade_estoque FROM produto ORDER BY nome")->fetchAll();
-$usuarios = $pdo->query("SELECT id_user, nome FROM `user` ORDER BY nome")->fetchAll();
 
 require_once __DIR__ . '/includes/menu.php';
 ?>
@@ -95,15 +97,7 @@ require_once __DIR__ . '/includes/menu.php';
                         <label class="form-label">Quantidade *</label>
                         <input type="number" name="quantidade" class="form-input" required min="1" step="1" placeholder="Ex: 10" value="<?= htmlspecialchars($quantidade) ?>">
                     </div>
-                    <div class="mb-6">
-                        <label class="form-label">Usuário responsável *</label>
-                        <select name="id_user" class="form-input" required>
-                            <option value="">Selecione o usuário</option>
-                            <?php foreach ($usuarios as $u): ?>
-                                <option value="<?= $u["id_user"] ?>" <?= $u["id_user"] == $id_user ? "selected" : "" ?>><?= htmlspecialchars($u["nome"]) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
+                    <p class="text-xs text-gray-500 mb-6">Responsável: <strong><?= htmlspecialchars(usuario_logado()["nome"]) ?></strong></p>
 
                     <div class="flex gap-2">
                         <button type="submit" class="bg-senai-blue text-white font-bold px-5 py-2.5 rounded-lg text-sm hover:bg-senai-blue-dark transition">💾 Salvar</button>

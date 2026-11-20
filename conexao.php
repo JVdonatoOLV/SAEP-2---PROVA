@@ -8,7 +8,7 @@
 $host  = 'localhost';
 $banco = 'empresa';
 $user  = 'root';
-$senha = '';                     // no WampServer o root vem sem senha
+$senha = '';                   
 
 try {
     $pdo = new PDO(
